@@ -278,3 +278,172 @@ func TestExploreOverAnEmptyIndexGivesEmptyFacets(t *testing.T) {
 		t.Errorf("the facet holds %d buckets over an empty index", len(result.Buckets))
 	}
 }
+
+func TestSortKeyReadsEveryFieldOfAppendixA(t *testing.T) {
+	r := newRecord(ard.Entry{
+		Identifier:  "urn:air:acme.com:server:weather",
+		DisplayName: "Weather Data Node",
+		Type:        ard.MediaTypeMCPServerCard,
+		URL:         "https://api.acme.com/mcp/weather.json",
+		Version:     "2.1.0",
+		UpdatedAt:   "2026-02-01T09:00:00Z",
+		Metadata:    map[string]any{"createdAt": "2025-06-01T00:00:00Z"},
+	})
+
+	cases := map[string]string{
+		"displayname": "weather data node",
+		"identifier":  "urn:air:acme.com:server:weather",
+		"type":        ard.MediaTypeMCPServerCard,
+		"version":     "2.1.0",
+		"publisherid": "acme.com",
+		"updatedat":   "2026-02-01T09:00:00Z",
+		"createdat":   "2025-06-01T00:00:00Z",
+		"unknown":     "",
+	}
+
+	for field, want := range cases {
+		t.Run(field, func(t *testing.T) {
+			if got := r.sortKey(field); got != want {
+				t.Errorf("sortKey(%q) = %q, want %q", field, got, want)
+			}
+		})
+	}
+}
+
+func TestSortKeyIsEmptyWhenTheMomentIsUnknown(t *testing.T) {
+	r := newRecord(ard.Entry{Identifier: "urn:air:acme.com:server:weather", UpdatedAt: "the first of March"})
+
+	if got := r.sortKey("updatedat"); got != "" {
+		t.Errorf("sortKey(updatedat) = %q over an unreadable timestamp, want the empty key", got)
+	}
+	if got := r.sortKey("createdat"); got != "" {
+		t.Errorf("sortKey(createdat) = %q over an entry without one, want the empty key", got)
+	}
+}
+
+func TestOrderFieldReadsTheAliases(t *testing.T) {
+	cases := map[string]string{
+		"displayName": "displayname",
+		"name":        "displayname",
+		"identifier":  "identifier",
+		"id":          "identifier",
+		"type":        "type",
+		"version":     "version",
+		"publisherId": "publisherid",
+		"publisher":   "publisherid",
+		"updated_at":  "updatedat",
+		"CREATEDAT":   "createdat",
+	}
+
+	for name, want := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, ok := orderField(name)
+			if !ok {
+				t.Fatalf("orderField(%q) names no field", name)
+			}
+			if got != want {
+				t.Errorf("orderField(%q) = %q, want %q", name, got, want)
+			}
+		})
+	}
+
+	if _, ok := orderField("score"); ok {
+		t.Error("orderField(score) names a field, and no registry sorts a listing on it")
+	}
+}
+
+func TestParseOrderByRefusesWhatItCannotSort(t *testing.T) {
+	cases := map[string]string{
+		"an unknown field":     "score DESC",
+		"an unknown direction": "displayName SIDEWAYS",
+		"three words":          "displayName DESC NOW",
+	}
+
+	for name, expression := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseOrderBy(expression); !errors.Is(err, registry.ErrInvalidArgument) {
+				t.Errorf("parseOrderBy(%q) gave %v, want ErrInvalidArgument", expression, err)
+			}
+		})
+	}
+}
+
+func TestScalarStringReadsOnlyAScalar(t *testing.T) {
+	cases := map[string]struct {
+		raw   string
+		want  string
+		known bool
+	}{
+		"a string":   {raw: `"weather"`, want: "weather", known: true},
+		"a number":   {raw: `12`, want: "12", known: true},
+		"a boolean":  {raw: `true`, want: "true", known: true},
+		"null":       {raw: `null`},
+		"an object":  {raw: `{"a":1}`},
+		"an array":   {raw: `["a"]`},
+		"nothing":    {raw: ``},
+		"bad string": {raw: `"unterminated`},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, known := scalarString([]byte(c.raw))
+			if known != c.known {
+				t.Fatalf("scalarString(%s) is known = %v, want %v", c.raw, known, c.known)
+			}
+			if got != c.want {
+				t.Errorf("scalarString(%s) = %q, want %q", c.raw, got, c.want)
+			}
+		})
+	}
+}
+
+func TestDistinctKeepsTheFirstOfEachValue(t *testing.T) {
+	cases := map[string][]string{
+		"nothing":       nil,
+		"one value":     {"weather"},
+		"two the same":  {"weather", "weather"},
+		"three of them": {"weather", "maps", "weather"},
+	}
+	want := map[string]int{"nothing": 0, "one value": 1, "two the same": 1, "three of them": 2}
+
+	for name, values := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := len(distinct(values)); got != want[name] {
+				t.Errorf("distinct(%v) holds %d values, want %d", values, got, want[name])
+			}
+		})
+	}
+}
+
+func TestAFacetCountsARepeatedValueOnce(t *testing.T) {
+	index := New([]ard.Entry{{
+		Identifier:  "urn:air:acme.com:server:weather",
+		DisplayName: "Weather Data Node",
+		Type:        ard.MediaTypeMCPServerCard,
+		URL:         "https://api.acme.com/mcp/weather.json",
+		Tags:        []string{"weather", "weather", "maps"},
+	}})
+	resolver, err := ard.NewTermResolver()
+	if err != nil {
+		t.Fatalf("build the resolver: %v", err)
+	}
+	path, err := resolver.ResolvePath(ard.TermTags)
+	if err != nil {
+		t.Fatalf("resolve the tags term: %v", err)
+	}
+
+	facets, err := index.Explore(context.Background(), registry.ExploreQuery{Facets: []registry.Facet{{Path: path, Limit: 10, MinCount: 1}}})
+	if err != nil {
+		t.Fatalf("explore: %v", err)
+	}
+
+	buckets := facets[ard.TermTags].Buckets
+	if len(buckets) != 2 {
+		t.Fatalf("the tags facet holds %d buckets, want 2", len(buckets))
+	}
+	for _, bucket := range buckets {
+		if bucket.Count == nil || *bucket.Count != 1 {
+			t.Errorf("bucket %q counts %v, want 1 for one entry", bucket.Value, bucket.Count)
+		}
+	}
+}
