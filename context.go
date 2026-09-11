@@ -1,9 +1,13 @@
 package ard
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 )
+
+//go:embed context_base.json
+var baseContextDocument []byte
 
 // The IRIs of the description layer. See section 4.1.
 const (
@@ -56,7 +60,13 @@ func (c *Context) UnmarshalJSON(b []byte) error {
 
 // Prefixes gives the prefix to namespace bindings the context declares, and the vocab
 // binding under the empty key.
-func (c Context) Prefixes() (map[string]string, error) { panic("ard: not implemented") }
+func (c Context) Prefixes() (map[string]string, error) {
+	bound := newTermBindings()
+	if err := bound.applyContext(c, nil, 0); err != nil {
+		return nil, err
+	}
+	return bound.prefixBindings(), nil
+}
 
 // BaseContext gives the ARD base context of section 4.1, embedded in the package.
-func BaseContext() Context { panic("ard: not implemented") }
+func BaseContext() Context { return baseContext }
