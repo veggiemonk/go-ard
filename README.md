@@ -114,6 +114,21 @@ the two agree:
 - this CLI passes all three probes against the Python mock registry;
 - a manifest written by this library passes the Python tool.
 
+## Tests
+
+```
+go test ./...
+```
+
+Every test uses the standard library only. `cmd/ard` has an end-to-end test that serves a
+manifest on an ephemeral port, probes it through the `probe` command and asserts the exit
+code of each command.
+
+The four checks against the official Python tool above stay manual, because they need
+Python and the specification repository. CI runs `gofmt`, `go vet` and `go test -race`. A
+second CI job fetches `spec/schemas/ard.context.jsonld` from the specification repository
+and fails when the embedded base context has drifted from it.
+
 ## Limits
 
 - **Term resolution is not full JSON-LD processing.** The library resolves a term or a
