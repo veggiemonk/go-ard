@@ -1,6 +1,9 @@
 package ard
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // The IRIs of the description layer. See section 4.1.
 const (
@@ -15,7 +18,19 @@ type Context struct {
 }
 
 // NewContext builds a context from a string, a map or a slice.
-func NewContext(v any) (Context, error) { panic("ard: not implemented") }
+func NewContext(v any) (Context, error) {
+	if v == nil {
+		return Context{}, nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return Context{}, fmt.Errorf("ard: bad context: %w", err)
+	}
+	return Context{raw: b}, nil
+}
+
+// RawContext takes a context as it was written, without a copy of the bytes.
+func RawContext(b json.RawMessage) Context { return Context{raw: b} }
 
 // IsZero reports whether the document carried no context.
 func (c Context) IsZero() bool { return len(c.raw) == 0 }
@@ -23,8 +38,21 @@ func (c Context) IsZero() bool { return len(c.raw) == 0 }
 // Raw gives the context as it was written.
 func (c Context) Raw() json.RawMessage { return c.raw }
 
-func (c Context) MarshalJSON() ([]byte, error)  { panic("ard: not implemented") }
-func (c *Context) UnmarshalJSON(b []byte) error { panic("ard: not implemented") }
+func (c Context) MarshalJSON() ([]byte, error) {
+	if c.IsZero() {
+		return []byte("null"), nil
+	}
+	return c.raw, nil
+}
+
+func (c *Context) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		c.raw = nil
+		return nil
+	}
+	c.raw = append(json.RawMessage(nil), b...)
+	return nil
+}
 
 // Prefixes gives the prefix to namespace bindings the context declares, and the vocab
 // binding under the empty key.
