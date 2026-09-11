@@ -21,6 +21,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -35,39 +37,49 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		usage()
-		os.Exit(2)
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
-	var err error
-	switch os.Args[1] {
-	case "validate":
-		err = cmdValidate(ctx, os.Args[2:])
-	case "resolve":
-		err = cmdResolve(ctx, os.Args[2:])
-	case "probe":
-		err = cmdProbe(ctx, os.Args[2:])
-	case "serve":
-		err = cmdServe(ctx, os.Args[2:])
-	case "-h", "--help", "help":
-		usage()
-		return
-	default:
-		fmt.Fprintf(os.Stderr, "ard: unknown command %q\n\n", os.Args[1])
-		usage()
-		os.Exit(2)
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "\n%s %v\n", paint(red, "FAIL"), err)
-		os.Exit(1)
-	}
+	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
 
-func usage() {
-	fmt.Fprint(os.Stderr, `ard — Agentic Resource Discovery conformance tool
+type cli struct {
+	out io.Writer
+	err io.Writer
+}
+
+func run(ctx context.Context, args []string, out, errOut io.Writer) int {
+	c := cli{out: out, err: errOut}
+	if len(args) == 0 {
+		c.usage()
+		return 2
+	}
+	var err error
+	switch args[0] {
+	case "validate":
+		err = c.validate(ctx, args[1:])
+	case "resolve":
+		err = c.resolve(ctx, args[1:])
+	case "probe":
+		err = c.probe(ctx, args[1:])
+	case "serve":
+		err = c.serve(ctx, args[1:])
+	case "-h", "--help", "help":
+		c.usage()
+		return 0
+	default:
+		fmt.Fprintf(c.err, "ard: unknown command %q\n\n", args[0])
+		c.usage()
+		return 2
+	}
+	if err != nil {
+		fmt.Fprintf(c.err, "\n%s %v\n", paint(red, "FAIL"), err)
+		return 1
+	}
+	return 0
+}
+
+func (c cli) usage() {
+	fmt.Fprint(c.err, `ard — Agentic Resource Discovery conformance tool
 
 Usage:
   ard validate <file|url>       check a manifest or a single entry
@@ -92,6 +104,12 @@ Exit codes: 0 conforms, 1 does not conform, 2 wrong usage.
 `)
 }
 
+func (c cli) flags(name string) *flag.FlagSet {
+	flags := flag.NewFlagSet(name, flag.ContinueOnError)
+	flags.SetOutput(c.err)
+	return flags
+}
+
 func parseArgs(flags *flag.FlagSet, args []string) ([]string, error) {
 	var positional []string
 	for {
@@ -107,8 +125,8 @@ func parseArgs(flags *flag.FlagSet, args []string) ([]string, error) {
 	}
 }
 
-func cmdValidate(ctx context.Context, args []string) error {
-	flags := flag.NewFlagSet("validate", flag.ExitOnError)
+func (c cli) validate(ctx context.Context, args []string) error {
+	flags := c.flags("validate")
 	positional, err := parseArgs(flags, args)
 	if err != nil {
 		return err
@@ -118,20 +136,20 @@ func cmdValidate(ctx context.Context, args []string) error {
 	}
 	target := positional[0]
 
-	header("Manifest validation")
+	c.header("Manifest validation")
 	raw, err := readTarget(ctx, target)
 	if err != nil {
 		return err
 	}
-	pass(fmt.Sprintf("read %s (%d bytes)", target, len(raw)))
+	c.pass(fmt.Sprintf("read %s (%d bytes)", target, len(raw)))
 
 	report, kind, err := validateDocument(raw)
 	if err != nil {
 		return err
 	}
-	pass(fmt.Sprintf("parsed as %s", kind))
-	printReport(report)
-	return verdict(report)
+	c.pass(fmt.Sprintf("parsed as %s", kind))
+	c.printReport(report)
+	return c.verdict(report)
 }
 
 func validateDocument(raw []byte) (ard.Report, string, error) {
@@ -168,8 +186,8 @@ func readTarget(ctx context.Context, target string) ([]byte, error) {
 	return json.Marshal(manifest)
 }
 
-func cmdResolve(ctx context.Context, args []string) error {
-	flags := flag.NewFlagSet("resolve", flag.ExitOnError)
+func (c cli) resolve(ctx context.Context, args []string) error {
+	flags := c.flags("resolve")
 	skip := flags.Bool("no-predecessor", false, "do not consult the predecessor path")
 	positional, err := parseArgs(flags, args)
 	if err != nil {
@@ -180,26 +198,26 @@ func cmdResolve(ctx context.Context, args []string) error {
 	}
 	domain := positional[0]
 
-	header("Publisher resolution")
+	c.header("Publisher resolution")
 	resolver := discover.NewResolver()
 	resolver.ConsultPredecessor = !*skip
 	result, err := resolver.Resolve(ctx, domain)
 	if err != nil {
 		return err
 	}
-	pass(fmt.Sprintf("resolved %s from %s (%s)", domain, result.URL, result.Kind))
+	c.pass(fmt.Sprintf("resolved %s from %s (%s)", domain, result.URL, result.Kind))
 	for _, w := range result.Warnings {
-		warn(fmt.Sprintf("%s: %s", w.Code, w.Message))
+		c.warn(fmt.Sprintf("%s: %s", w.Code, w.Message))
 	}
-	pass(fmt.Sprintf("the source gave %d entries", len(result.Entries)))
+	c.pass(fmt.Sprintf("the source gave %d entries", len(result.Entries)))
 
 	report := ard.ValidateManifest(result.Manifest)
-	printReport(report)
-	return verdict(report)
+	c.printReport(report)
+	return c.verdict(report)
 }
 
-func cmdProbe(ctx context.Context, args []string) error {
-	flags := flag.NewFlagSet("probe", flag.ExitOnError)
+func (c cli) probe(ctx context.Context, args []string) error {
+	flags := c.flags("probe")
 	var headers headerList
 	flags.Var(&headers, "header", `a request header, such as "Authorization: Bearer x"`)
 	positional, err := parseArgs(flags, args)
@@ -214,34 +232,34 @@ func cmdProbe(ctx context.Context, args []string) error {
 		return err
 	}
 
-	header("Registry API validation")
+	c.header("Registry API validation")
 	failures := 0
-	failures += probeList(ctx, client)
-	failures += probeSearch(ctx, client)
-	failures += probeExplore(ctx, client)
+	failures += c.probeList(ctx, client)
+	failures += c.probeSearch(ctx, client)
+	failures += c.probeExplore(ctx, client)
 	if failures > 0 {
 		return fmt.Errorf("%d probe(s) did not conform", failures)
 	}
-	fmt.Printf("\n%s the registry conforms\n", paint(green, "PASS"))
+	fmt.Fprintf(c.out, "\n%s the registry conforms\n", paint(green, "PASS"))
 	return nil
 }
 
-func probeList(ctx context.Context, client *registry.Client) int {
-	fmt.Println("\n" + paint(bold, "GET /agents (optional)"))
+func (c cli) probeList(ctx context.Context, client *registry.Client) int {
+	fmt.Fprintln(c.out, "\n"+paint(bold, "GET /agents (optional)"))
 	list, err := client.List(ctx, registry.ListOptions{PageSize: 5})
-	if optional(err, "deterministic listing") {
+	if c.optional(err, "deterministic listing") {
 		return 0
 	}
 	if err != nil {
-		fail(err.Error())
+		c.fail(err.Error())
 		return 1
 	}
-	pass(fmt.Sprintf("200 with an items array of %d entries", len(list.Items)))
-	return countMissingIdentifiers(list.Items, "items")
+	c.pass(fmt.Sprintf("200 with an items array of %d entries", len(list.Items)))
+	return c.countMissingIdentifiers(list.Items, "items")
 }
 
-func probeSearch(ctx context.Context, client *registry.Client) int {
-	fmt.Println("\n" + paint(bold, "POST /search (required)"))
+func (c cli) probeSearch(ctx context.Context, client *registry.Client) int {
+	fmt.Fprintln(c.out, "\n"+paint(bold, "POST /search (required)"))
 	request := ard.SearchRequest{
 		Query:      ard.Query{Text: "weather forecast"},
 		Federation: ard.FederationNone,
@@ -249,78 +267,78 @@ func probeSearch(ctx context.Context, client *registry.Client) int {
 	}
 	response, err := client.Search(ctx, request)
 	if err != nil {
-		fail(err.Error())
+		c.fail(err.Error())
 		return 1
 	}
-	pass(fmt.Sprintf("200 with a results array of %d results", len(response.Results)))
+	c.pass(fmt.Sprintf("200 with a results array of %d results", len(response.Results)))
 
 	failures := 0
 	for i, result := range response.Results {
 		if result.Entry.Identifier == "" {
-			fail(fmt.Sprintf("results[%d] carries no identifier, which section 5.3.2 requires", i))
+			c.fail(fmt.Sprintf("results[%d] carries no identifier, which section 5.3.2 requires", i))
 			failures++
 			continue
 		}
 		if _, err := ard.ParseURN(result.Entry.Identifier); err != nil {
-			fail(fmt.Sprintf("results[%d]: %v", i, err))
+			c.fail(fmt.Sprintf("results[%d]: %v", i, err))
 			failures++
 		}
 		if result.Score == nil {
-			info(fmt.Sprintf("results[%d] carries no score, which section 5.3.2 allows", i))
+			c.info(fmt.Sprintf("results[%d] carries no score, which section 5.3.2 allows", i))
 			continue
 		}
 		if *result.Score < 0 || *result.Score > 100 {
-			fail(fmt.Sprintf("results[%d] scores %d, outside the range 0 to 100", i, *result.Score))
+			c.fail(fmt.Sprintf("results[%d] scores %d, outside the range 0 to 100", i, *result.Score))
 			failures++
 		}
 	}
 	if failures == 0 && len(response.Results) > 0 {
-		pass("every result carries a valid identifier and score")
+		c.pass("every result carries a valid identifier and score")
 	}
 	if response.PageToken != "" {
-		pass("the response carries a pageToken, so the registry pages")
+		c.pass("the response carries a pageToken, so the registry pages")
 	}
 	return failures
 }
 
-func probeExplore(ctx context.Context, client *registry.Client) int {
-	fmt.Println("\n" + paint(bold, "POST /explore (optional)"))
+func (c cli) probeExplore(ctx context.Context, client *registry.Client) int {
+	fmt.Fprintln(c.out, "\n"+paint(bold, "POST /explore (optional)"))
 	request := ard.ExploreRequest{
 		ResultType: ard.ExploreShape{Facets: []ard.FacetRequest{{Field: ard.TermType}}},
 	}
 	response, err := client.Explore(ctx, request)
-	if optional(err, "registry introspection") {
+	if c.optional(err, "registry introspection") {
 		return 0
 	}
 	if err != nil {
-		fail(err.Error())
+		c.fail(err.Error())
 		return 1
 	}
 	if response.ResultType != registry.ResultTypeFacets {
-		fail(fmt.Sprintf("resultType is %q and not %q", response.ResultType, registry.ResultTypeFacets))
+		c.fail(fmt.Sprintf("resultType is %q and not %q", response.ResultType, registry.ResultTypeFacets))
 		return 1
 	}
-	pass(fmt.Sprintf("200 with %d facet(s)", len(response.Facets)))
+	c.pass(fmt.Sprintf("200 with %d facet(s)", len(response.Facets)))
 	for field, facet := range response.Facets {
-		pass(fmt.Sprintf("facet %q gave %d bucket(s)", field, len(facet.Buckets)))
+		c.pass(fmt.Sprintf("facet %q gave %d bucket(s)", field, len(facet.Buckets)))
 	}
 	return 0
 }
 
-func optional(err error, what string) bool {
+func (c cli) optional(err error, what string) bool {
 	if err == nil {
 		return false
 	}
 	var api *ard.APIError
 	if errors.As(err, &api) && (api.HTTPStatus == http.StatusNotFound || api.HTTPStatus == http.StatusNotImplemented) {
-		pass(fmt.Sprintf("HTTP %d: %s is optional, so this conforms", api.HTTPStatus, what))
+		c.pass(fmt.Sprintf("HTTP %d: %s is optional, so this conforms", api.HTTPStatus, what))
 		return true
 	}
 	return false
 }
 
-func cmdServe(ctx context.Context, args []string) error {
-	flags := flag.NewFlagSet("serve", flag.ExitOnError)
+func (c cli) serve(ctx context.Context, args []string) error {
+	flags := c.flags("serve")
 	addr := flags.String("addr", ":9010", "listen address")
 	source := flags.String("source", "", "the source URL that every search result carries")
 	positional, err := parseArgs(flags, args)
@@ -339,15 +357,18 @@ func cmdServe(ctx context.Context, args []string) error {
 		return fmt.Errorf("the document is no manifest: %w", err)
 	}
 	for _, issue := range ard.ValidateManifest(manifest).Warnings {
-		warn(issue.Message)
+		c.warn(issue.Message)
 	}
 
+	listener, err := net.Listen("tcp", *addr)
+	if err != nil {
+		return err
+	}
 	if *source == "" {
-		*source = "http://localhost" + *addr
+		*source = "http://" + listener.Addr().String()
 	}
 	index := memindex.New(manifest.Entries)
 	server := &http.Server{
-		Addr:              *addr,
 		Handler:           registry.Handler(index, registry.Options{Source: *source}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -358,46 +379,46 @@ func cmdServe(ctx context.Context, args []string) error {
 		_ = server.Shutdown(shutdown)
 	}()
 
-	fmt.Printf("%s %d entries on %s\n", paint(green, "serving"), index.Len(), *addr)
-	fmt.Printf("  POST %s%s\n  POST %s%s\n  GET  %s%s\n",
+	fmt.Fprintf(c.out, "%s %d entries on %s\n", paint(green, "serving"), index.Len(), listener.Addr())
+	fmt.Fprintf(c.out, "  POST %s%s\n  POST %s%s\n  GET  %s%s\n",
 		*source, registry.RouteSearch, *source, registry.RouteExplore, *source, registry.RouteAgents)
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
 }
 
-func countMissingIdentifiers(entries []ard.Entry, where string) int {
+func (c cli) countMissingIdentifiers(entries []ard.Entry, where string) int {
 	missing := 0
 	for i, entry := range entries {
 		if entry.Identifier == "" {
-			fail(fmt.Sprintf("%s[%d] carries no identifier", where, i))
+			c.fail(fmt.Sprintf("%s[%d] carries no identifier", where, i))
 			missing++
 		}
 	}
 	if missing == 0 && len(entries) > 0 {
-		pass("every item carries an identifier")
+		c.pass("every item carries an identifier")
 	}
 	return missing
 }
 
-func printReport(report ard.Report) {
+func (c cli) printReport(report ard.Report) {
 	for _, issue := range report.Errors {
-		fail(fmt.Sprintf("%s: %s [%s, section %s]", issue.Path, issue.Message, issue.Code, issue.Section))
+		c.fail(fmt.Sprintf("%s: %s [%s, section %s]", issue.Path, issue.Message, issue.Code, issue.Section))
 	}
 	for _, issue := range report.Warnings {
-		warn(fmt.Sprintf("%s: %s [%s, section %s]", issue.Path, issue.Message, issue.Code, issue.Section))
+		c.warn(fmt.Sprintf("%s: %s [%s, section %s]", issue.Path, issue.Message, issue.Code, issue.Section))
 	}
 	if report.OK() && len(report.Warnings) == 0 {
-		pass("no error and no warning")
+		c.pass("no error and no warning")
 	}
 }
 
-func verdict(report ard.Report) error {
+func (c cli) verdict(report ard.Report) error {
 	if !report.OK() {
 		return fmt.Errorf("%d error(s), %d warning(s)", len(report.Errors), len(report.Warnings))
 	}
-	fmt.Printf("\n%s %d error(s), %d warning(s)\n", paint(green, "PASS"), 0, len(report.Warnings))
+	fmt.Fprintf(c.out, "\n%s %d error(s), %d warning(s)\n", paint(green, "PASS"), 0, len(report.Warnings))
 	return nil
 }
 
@@ -442,12 +463,14 @@ func paint(color, text string) string {
 	return color + text + reset
 }
 
-func header(title string) { fmt.Printf("\n%s\n", paint(bold+cyan, "=== "+title+" ===")) }
+func (c cli) header(title string) {
+	fmt.Fprintf(c.out, "\n%s\n", paint(bold+cyan, "=== "+title+" ==="))
+}
 
-func pass(message string) { fmt.Printf("  %s %s\n", paint(green, "✓"), message) }
+func (c cli) pass(message string) { fmt.Fprintf(c.out, "  %s %s\n", paint(green, "✓"), message) }
 
-func fail(message string) { fmt.Printf("  %s %s\n", paint(red, "✗"), message) }
+func (c cli) fail(message string) { fmt.Fprintf(c.out, "  %s %s\n", paint(red, "✗"), message) }
 
-func warn(message string) { fmt.Printf("  %s %s\n", paint(amber, "⚠"), message) }
+func (c cli) warn(message string) { fmt.Fprintf(c.out, "  %s %s\n", paint(amber, "⚠"), message) }
 
-func info(message string) { fmt.Printf("  %s %s\n", paint(cyan, "·"), message) }
+func (c cli) info(message string) { fmt.Fprintf(c.out, "  %s %s\n", paint(cyan, "·"), message) }
