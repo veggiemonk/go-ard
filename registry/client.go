@@ -27,7 +27,9 @@ const maxAnswerBytes = 32 << 20
 
 // Client calls the registry REST API of section 5.3.
 type Client struct {
-	// BaseURL addresses the registry, with or without a path prefix and a trailing slash.
+	// BaseURL addresses the registry, with or without a path prefix and a trailing
+	// slash. It also accepts a full route URL, such as the url of a referral, which
+	// names the search route of the referred registry. See section 5.4.
 	BaseURL string
 
 	// HTTPClient sends the requests. A nil client sends them with http.DefaultClient.
@@ -125,12 +127,32 @@ func (c *Client) endpoint(route string, query url.Values) (string, error) {
 		return "", fmt.Errorf("ard: the registry base URL %q names no scheme and host", c.BaseURL)
 	}
 	joined := *base
-	joined.Path = path.Join("/", base.Path, route)
+	joined.Path = path.Join("/", trimRoute(base.Path), route)
 	joined.RawPath = ""
 	if len(query) > 0 {
 		joined.RawQuery = query.Encode()
 	}
 	return joined.String(), nil
+}
+
+// trimRoute removes a route of section 5.3 that the base URL already carries.
+//
+// A Client is built from two kinds of URL. A person names the registry itself, and a
+// referral names the search route of the referred registry: the OpenAPI describes
+// RegistryReferral.url as the "endpoint URL for the referred registry's search route".
+// Without this, a client built from a referral asks for /search/search and gets 404.
+//
+// A registry that is genuinely mounted under a path that ends in one of the three route
+// names is unreachable this way. That trade is deliberate: a referral is common and such
+// a mount point is not.
+func trimRoute(prefix string) string {
+	clean := path.Join("/", prefix)
+	for _, route := range []string{RouteSearch, RouteExplore, RouteAgents} {
+		if clean == route || strings.HasSuffix(clean, route) {
+			return strings.TrimSuffix(clean, route)
+		}
+	}
+	return clean
 }
 
 func (c *Client) decorate(request *http.Request) {

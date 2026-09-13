@@ -32,11 +32,15 @@ func TestClientJoinsTheBaseURLAndTheRoute(t *testing.T) {
 		suffix string
 		want   string
 	}{
-		"bare":                   {"", "/search"},
-		"trailing slash":         {"/", "/search"},
-		"path prefix":            {"/api/ard", "/api/ard/search"},
-		"path prefix and slash":  {"/api/ard/", "/api/ard/search"},
-		"path prefix and double": {"/api//ard", "/api/ard/search"},
+		"bare":                                {"", "/search"},
+		"trailing slash":                      {"/", "/search"},
+		"path prefix":                         {"/api/ard", "/api/ard/search"},
+		"path prefix and slash":               {"/api/ard/", "/api/ard/search"},
+		"path prefix and double":              {"/api//ard", "/api/ard/search"},
+		"referral search route":               {"/search", "/search"},
+		"referral and slash":                  {"/search/", "/search"},
+		"referral under a path":               {"/registries/tools/search", "/registries/tools/search"},
+		"a path that ends in the word search": {"/api/research", "/api/research/search"},
 	}
 
 	for name, each := range cases {
@@ -49,6 +53,39 @@ func TestClientJoinsTheBaseURLAndTheRoute(t *testing.T) {
 				t.Errorf("the registry saw the path %q, want %q", seen.Path, each.want)
 			}
 		})
+	}
+}
+
+// A referral names the search route. A Client built from one must still reach the other
+// two routes of section 5.3, at the same registry.
+func TestClientBuiltFromAReferralReachesEveryRoute(t *testing.T) {
+	var seen url.URL
+	var header http.Header
+	server := echoServer(t, &seen, &header)
+	client := &registry.Client{
+		BaseURL:    server.URL + "/registries/tools/search",
+		HTTPClient: server.Client(),
+	}
+
+	if _, err := client.Search(context.Background(), searchRequest("travel")); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if seen.Path != "/registries/tools/search" {
+		t.Errorf("search asked for %q, want /registries/tools/search", seen.Path)
+	}
+
+	if _, err := client.Explore(context.Background(), ard.ExploreRequest{}); err != nil {
+		t.Fatalf("explore: %v", err)
+	}
+	if seen.Path != "/registries/tools/explore" {
+		t.Errorf("explore asked for %q, want /registries/tools/explore", seen.Path)
+	}
+
+	if _, err := client.List(context.Background(), registry.ListOptions{}); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if seen.Path != "/registries/tools/agents" {
+		t.Errorf("list asked for %q, want /registries/tools/agents", seen.Path)
 	}
 }
 
