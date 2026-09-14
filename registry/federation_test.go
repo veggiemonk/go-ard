@@ -225,6 +225,122 @@ func TestMergeResultsKeepsTheBetterScore(t *testing.T) {
 	}
 }
 
+func TestBalanceResultsCapsWhatOneUpstreamContributes(t *testing.T) {
+	generous := []ard.Result{
+		upstreamResult("g1", 99), upstreamResult("g2", 98),
+		upstreamResult("g3", 97), upstreamResult("g4", 96),
+	}
+	modest := []ard.Result{upstreamResult("m1", 40), upstreamResult("m2", 30)}
+
+	balanced := registry.BalanceResults(registry.Balance{PerSource: 2}, generous, modest)
+
+	if len(balanced) != 4 {
+		t.Fatalf("the balance gave %d results, want 4", len(balanced))
+	}
+	for _, unwanted := range []string{"g3", "g4"} {
+		if slices.ContainsFunc(balanced, func(r ard.Result) bool { return r.Entry.Identifier == unwanted }) {
+			t.Errorf("the balance kept %q, which is outside the two best of its upstream", unwanted)
+		}
+	}
+	for _, wanted := range []string{"g1", "g2", "m1", "m2"} {
+		if !slices.ContainsFunc(balanced, func(r ard.Result) bool { return r.Entry.Identifier == wanted }) {
+			t.Errorf("the balance dropped %q", wanted)
+		}
+	}
+}
+
+// An upstream keeps its best results, whatever order it sent them in.
+func TestBalanceResultsKeepsTheBestOfAnUnsortedUpstream(t *testing.T) {
+	unsorted := []ard.Result{upstreamResult("low", 10), upstreamResult("high", 90), upstreamResult("mid", 50)}
+
+	balanced := registry.BalanceResults(registry.Balance{PerSource: 1}, unsorted)
+
+	if len(balanced) != 1 || balanced[0].Entry.Identifier != "high" {
+		t.Errorf("the balance kept %v, want the one result high", balanced)
+	}
+	if len(unsorted) != 3 || unsorted[0].Entry.Identifier != "low" {
+		t.Error("the balance reordered the set the caller gave it")
+	}
+}
+
+func TestBalanceResultsCapsHowManyUpstreamsContribute(t *testing.T) {
+	first := []ard.Result{upstreamResult("a", 10)}
+	second := []ard.Result{upstreamResult("b", 20)}
+	third := []ard.Result{upstreamResult("c", 100)}
+
+	balanced := registry.BalanceResults(registry.Balance{MaxSources: 2}, first, second, third)
+
+	if len(balanced) != 2 {
+		t.Fatalf("the balance gave %d results, want 2", len(balanced))
+	}
+	if slices.ContainsFunc(balanced, func(r ard.Result) bool { return r.Entry.Identifier == "c" }) {
+		t.Error("the balance kept the third upstream, and MaxSources is 2")
+	}
+}
+
+// An upstream that answers with nothing must not spend a place under MaxSources.
+func TestBalanceResultsGivesNoPlaceToAnEmptyUpstream(t *testing.T) {
+	balanced := registry.BalanceResults(registry.Balance{MaxSources: 2},
+		nil, []ard.Result{upstreamResult("a", 10)}, nil, []ard.Result{upstreamResult("b", 20)})
+
+	if len(balanced) != 2 {
+		t.Fatalf("the balance gave %d results, want 2", len(balanced))
+	}
+}
+
+func TestBalanceResultsWithoutACapMergesPurelyByScore(t *testing.T) {
+	sets := [][]ard.Result{
+		{upstreamResult("a", 10), upstreamResult("b", 80)},
+		{upstreamResult("a", 90)},
+	}
+
+	balanced := registry.BalanceResults(registry.Balance{}, sets...)
+	merged := registry.MergeResults(sets...)
+
+	if len(balanced) != len(merged) {
+		t.Fatalf("the empty balance gave %d results and the merge gave %d", len(balanced), len(merged))
+	}
+	for i := range merged {
+		if balanced[i].Entry.Identifier != merged[i].Entry.Identifier {
+			t.Errorf("at %d the empty balance gave %q and the merge gave %q",
+				i, balanced[i].Entry.Identifier, merged[i].Entry.Identifier)
+		}
+	}
+}
+
+// A score from one registry does not compare with a score from another, so a generous
+// upstream must not fill the answer and hide a modest one.
+func TestFederationAutoHonoursTheBalance(t *testing.T) {
+	generous := newUpstream(t, "generous", []ard.Result{
+		upstreamResult("urn:air:generous.example:agent:one", 99),
+		upstreamResult("urn:air:generous.example:agent:two", 98),
+		upstreamResult("urn:air:generous.example:agent:three", 97),
+	})
+	modest := newUpstream(t, "modest", []ard.Result{
+		upstreamResult("urn:air:modest.example:agent:one", 20),
+	})
+
+	federator := &registry.Federator{
+		Timeout: 5 * time.Second,
+		Balance: registry.Balance{PerSource: 1},
+		Upstreams: []registry.Upstream{
+			{Referral: generous.referral, Client: &registry.Client{BaseURL: generous.server.URL, HTTPClient: generous.server.Client()}},
+			{Referral: modest.referral, Client: &registry.Client{BaseURL: modest.server.URL, HTTPClient: modest.server.Client()}},
+		},
+	}
+
+	merged := federator.Fanout(t.Context(), federatedSearch(ard.FederationAuto))
+
+	if len(merged) != 2 {
+		t.Fatalf("the fanout gave %d results, want one from each upstream", len(merged))
+	}
+	if !slices.ContainsFunc(merged, func(r ard.Result) bool {
+		return r.Entry.Identifier == "urn:air:modest.example:agent:one"
+	}) {
+		t.Error("the generous upstream hid the modest one")
+	}
+}
+
 func scoreFor(t *testing.T, results []ard.Result, identifier string) int {
 	t.Helper()
 	for _, result := range results {

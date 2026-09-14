@@ -32,7 +32,33 @@ type Federator struct {
 
 	// Timeout bounds one upstream call. Zero means DefaultUpstreamTimeout.
 	Timeout time.Duration
+
+	// Balance caps what one upstream contributes to a merged answer. The zero value
+	// caps nothing and merges purely by score.
+	Balance Balance
 }
+
+// Balance caps what one upstream contributes to a merged answer.
+//
+// A score from one registry does not compare with a score from another: each registry
+// scores against its own index, on its own scale, and the specification fixes only the
+// range of 0 to 100. Merging purely by score therefore lets one generous upstream fill
+// the answer and hide a better result from a modest one. Balance bounds that.
+//
+// The specification does not name the behaviour. The reference client of Hugging Face
+// takes 3 results from each of at most 3 registries; a caller here chooses the numbers.
+type Balance struct {
+	// MaxSources caps how many upstreams contribute. An upstream that answers with
+	// nothing takes no place. Zero means every upstream contributes.
+	MaxSources int
+
+	// PerSource caps how many results one upstream contributes, keeping its best by
+	// score. Zero means all of them.
+	PerSource int
+}
+
+// IsZero reports whether the balance caps nothing.
+func (b Balance) IsZero() bool { return b.MaxSources <= 0 && b.PerSource <= 0 }
 
 // Referrals lists the upstream registries that a client may query itself.
 func (f *Federator) Referrals() []ard.Referral {
@@ -74,7 +100,41 @@ func (f *Federator) Fanout(ctx context.Context, req ard.SearchRequest) []ard.Res
 		}()
 	}
 	wg.Wait()
-	return MergeResults(answers...)
+	return BalanceResults(f.Balance, answers...)
+}
+
+// BalanceResults merges result sets under a balance, and merges purely by score when the
+// balance caps nothing. See Balance and MergeResults.
+//
+// The sets keep the order the caller gives them, which for a Fanout is the order of the
+// upstreams. A set that holds nothing takes no place under MaxSources.
+func BalanceResults(b Balance, sets ...[]ard.Result) []ard.Result {
+	if b.IsZero() {
+		return MergeResults(sets...)
+	}
+	kept := make([][]ard.Result, 0, len(sets))
+	for _, set := range sets {
+		if len(set) == 0 {
+			continue
+		}
+		kept = append(kept, bestByScore(set, b.PerSource))
+		if b.MaxSources > 0 && len(kept) == b.MaxSources {
+			break
+		}
+	}
+	return MergeResults(kept...)
+}
+
+// bestByScore gives the n best results of one set by score, without touching the set.
+func bestByScore(set []ard.Result, n int) []ard.Result {
+	if n <= 0 || len(set) <= n {
+		return set
+	}
+	best := slices.Clone(set)
+	slices.SortStableFunc(best, func(a, b ard.Result) int {
+		return cmp.Compare(scoreOf(b), scoreOf(a))
+	})
+	return best[:n]
 }
 
 // MergeResults merges result sets, removes the duplicates by identifier keeping the
