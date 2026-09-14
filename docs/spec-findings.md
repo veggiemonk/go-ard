@@ -105,3 +105,27 @@ recorded nowhere normative.
 
 `spec/schemas/ard.openapi.yaml` declares `info.version: 0.5.0`. The specification is
 v0.91.
+
+## 10. Appendix C names one URN prefix, and the predecessor prefix is still in the field
+
+Appendix C and ADR-0009 name `urn:air:`. Entries that carry the predecessor `urn:ai:` are
+still published, and the reference client of Hugging Face reads them and reports a
+deprecation warning.
+
+**The library reads the predecessor prefix and warns.** `ParseURN` accepts it, marks the
+result `Legacy`, and `URN.String` writes `urn:air:` back, so a round trip rewrites the
+identifier. The validator reports `legacy_urn_prefix` as a warning and not an error. A
+reader accepts what a writer must not emit; rejecting the entry loses a publisher that
+appendix C can still reach.
+
+## 11. §5.3 gives two rules for `application/ai-registry+json`
+
+§5.3 says a registry **entry** of that media type carries the "operational base URL". The
+OpenAPI says a **referral** of the same media type carries the search endpoint:
+`RegistryReferral.url` is the "endpoint URL for the referred registry's search route".
+One media type, two rules, and a client cannot tell which one it holds.
+
+**The library accepts both.** `registry.Client` removes a route of §5.3 that the base URL
+already carries, so a client built from a referral and a client built from a base URL
+both reach `/search`, `/explore` and `/agents`. A registry genuinely mounted under a path
+that ends in a route name is unreachable this way, which is the cost of the ambiguity.

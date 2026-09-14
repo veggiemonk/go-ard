@@ -9,6 +9,15 @@ import (
 // URNPrefix is the URN namespace identifier of a discovery identifier. See ADR-0009.
 const URNPrefix = "urn:air:"
 
+// URNPrefixLegacy is the predecessor namespace identifier, which ADR-0009 replaced.
+//
+// A reader accepts what a writer must not emit. ParseURN reads an identifier that
+// carries this prefix and marks it Legacy; String always writes URNPrefix, so a round
+// trip rewrites the identifier. The validator reports the legacy prefix as a warning,
+// not as an error, because the entry is otherwise sound and the publisher can still be
+// reached. The reference client of Hugging Face reads it the same way.
+const URNPrefixLegacy = "urn:ai:"
+
 // URN is a parsed discovery identifier of the form
 // urn:air:<publisher>:<namespace>:<agent-name>.
 //
@@ -18,6 +27,10 @@ type URN struct {
 	Publisher string
 	Namespace []string
 	Name      string
+
+	// Legacy records that the identifier arrived with URNPrefixLegacy. String never
+	// writes that prefix back.
+	Legacy bool
 }
 
 // String gives the identifier back in its wire form.
@@ -37,10 +50,17 @@ func ParseURN(s string) (URN, error) {
 	if s == "" {
 		return URN{}, fmt.Errorf("ard: the discovery identifier is empty")
 	}
-	if !strings.HasPrefix(s, URNPrefix) {
-		return URN{}, fmt.Errorf("ard: discovery identifier %q does not start with %q", s, URNPrefix)
+	var body string
+	var legacy bool
+	switch {
+	case strings.HasPrefix(s, URNPrefix):
+		body = strings.TrimPrefix(s, URNPrefix)
+	case strings.HasPrefix(s, URNPrefixLegacy):
+		body, legacy = strings.TrimPrefix(s, URNPrefixLegacy), true
+	default:
+		return URN{}, fmt.Errorf("ard: discovery identifier %q does not start with %q, nor with the predecessor %q", s, URNPrefix, URNPrefixLegacy)
 	}
-	segments := strings.Split(strings.TrimPrefix(s, URNPrefix), ":")
+	segments := strings.Split(body, ":")
 	if len(segments) < 2 {
 		return URN{}, fmt.Errorf("ard: discovery identifier %q needs at least a publisher segment and an agent name segment", s)
 	}
@@ -52,7 +72,7 @@ func ParseURN(s string) (URN, error) {
 			return URN{}, fmt.Errorf("ard: discovery identifier %q has a bad segment: %w", s, err)
 		}
 	}
-	parsed := URN{Publisher: segments[0], Name: segments[len(segments)-1]}
+	parsed := URN{Publisher: segments[0], Name: segments[len(segments)-1], Legacy: legacy}
 	if len(segments) > 2 {
 		parsed.Namespace = segments[1 : len(segments)-1]
 	}

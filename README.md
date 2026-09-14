@@ -144,8 +144,8 @@ and fails when the embedded base context has drifted from it.
 
 ## Findings against the specification
 
-Writing this library surfaced nine places where the prose, the JSON Schema, the CDDL, the
-OpenAPI file and the reference tool disagree. They are listed in
+Writing this library surfaced eleven places where the prose, the JSON Schema, the CDDL,
+the OpenAPI file and the reference tool disagree. They are listed in
 [docs/spec-findings.md](docs/spec-findings.md), with the side this library follows and
 why. The specification stays the authority; the findings are reported upstream.
 

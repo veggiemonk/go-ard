@@ -130,6 +130,26 @@ func TestValidateAllThreeRequiredTermsAbsent(t *testing.T) {
 	}
 }
 
+// Appendix C names urn:air: alone. The library reads the predecessor prefix anyway and
+// reports it as a warning, because the entry is otherwise sound. See docs/spec-findings.md.
+func TestValidateWarnsOnThePredecessorURNPrefix(t *testing.T) {
+	entry := conformingEntry()
+	entry.Identifier = "urn:ai:acme.com:server:weather"
+
+	report := Validate(entry)
+
+	if _, failed := findIssue(report.Errors, IssueBadURN); failed {
+		t.Error("the predecessor prefix gave an error, want a warning")
+	}
+	issue, warned := findIssue(report.Warnings, IssueLegacyURNPrefix)
+	if !warned {
+		t.Fatalf("the predecessor prefix gave no %q warning (warnings %v)", IssueLegacyURNPrefix, report.Warnings)
+	}
+	if !strings.Contains(issue.Message, "urn:air:acme.com:server:weather") {
+		t.Errorf("the warning %q does not name the spelling a writer must emit", issue.Message)
+	}
+}
+
 func TestValidateIdentifierURNAppendixC(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -140,7 +160,7 @@ func TestValidateIdentifierURNAppendixC(t *testing.T) {
 		{"adr-0007 no namespace segment", "urn:air:acme.com:assistant", false},
 		{"adr-0007 recursive namespace", "urn:air:acme.com:finance:trading:trader", false},
 		{"appendix C rejects an http iri", "https://acme.com/agents/weather", true},
-		{"appendix C rejects the predecessor nid", "urn:ai:acme.com:server:weather", true},
+		{"the predecessor nid is read, and warned about", "urn:ai:acme.com:server:weather", false},
 		{"appendix C rejects a bare name", "weather", true},
 		{"appendix C rejects a publisher only", "urn:air:acme.com", true},
 		{"appendix C rejects an empty publisher", "urn:air::server:weather", true},

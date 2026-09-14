@@ -56,13 +56,30 @@ func TestParseURNAccepts(t *testing.T) {
 	}
 }
 
+// A reader accepts what a writer must not emit. ADR-0009 replaced urn:ai: with urn:air:,
+// and the entries that carry the old prefix are still in the field.
+func TestParseURNReadsThePredecessorPrefix(t *testing.T) {
+	parsed, err := ParseURN("urn:ai:acme.com:server:weather")
+	if err != nil {
+		t.Fatalf("ParseURN gave the error %v", err)
+	}
+	if !parsed.Legacy {
+		t.Error("the parsed identifier is not marked Legacy")
+	}
+	if parsed.Publisher != "acme.com" || parsed.Name != "weather" {
+		t.Errorf("publisher %q and name %q, want acme.com and weather", parsed.Publisher, parsed.Name)
+	}
+	if got, want := parsed.String(), "urn:air:acme.com:server:weather"; got != want {
+		t.Errorf("String() = %q, want %q: a writer must not emit the predecessor prefix", got, want)
+	}
+}
+
 func TestParseURNRejects(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string
 	}{
 		{"empty", ""},
-		{"the old two letter nid", "urn:ai:acme.com:server:weather"},
 		{"an unknown nid", "urn:agent:acme.com:server:weather"},
 		{"no urn scheme", "air:acme.com:server:weather"},
 		{"an http uri", "https://acme.com/agents/weather"},

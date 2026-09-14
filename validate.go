@@ -10,6 +10,7 @@ import (
 const (
 	IssueMissingTerm         = "missing_term"
 	IssueBadURN              = "bad_urn"
+	IssueLegacyURNPrefix     = "legacy_urn_prefix"
 	IssueValueOrReference    = "value_or_reference"
 	IssueMissingIdentity     = "missing_identity"
 	IssueAuthorityMismatch   = "authority_mismatch"
@@ -178,6 +179,11 @@ func checkIdentifier(e Entry, report *Report) (URN, bool) {
 			"the identifier %q is not a discovery URN of the form urn:air:<publisher>:<namespace>:<agent-name>: %v",
 			e.Identifier, err)
 		return URN{}, false
+	}
+	if identifier.Legacy {
+		report.warn(TermIdentifier, IssueLegacyURNPrefix, sectionURN,
+			"the identifier %q starts with the predecessor prefix %q, which ADR-0009 replaced with %q: this library reads it, and a writer must emit %q",
+			e.Identifier, URNPrefixLegacy, URNPrefix, identifier.String())
 	}
 	return identifier, true
 }
