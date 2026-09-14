@@ -50,6 +50,61 @@ func resolved(t *testing.T, text string, filter map[string][]string) registry.Re
 	return query
 }
 
+// hf-discover publishes "application/ai-skill" and "application/mcp-server+json"; the
+// v0.91 prose writes "application/ai-skill+md" and "application/mcp-server-card+json".
+// A filter written with one spelling must find an entry written with the other.
+func TestTheTypeFilterFoldsTheMediaTypeSpellings(t *testing.T) {
+	entries := []ard.Entry{
+		{
+			Identifier:  "urn:air:acme.com:skill:expense",
+			DisplayName: "Expense Report",
+			Type:        ard.MediaTypeAISkill,
+			URL:         "https://acme.com/skills/expense/SKILL.md",
+		},
+		{
+			Identifier:  "urn:air:hf.co:skill:triage",
+			DisplayName: "Triage",
+			Type:        "application/ai-skill",
+			URL:         "https://hf.co/skills/triage/SKILL.md",
+		},
+	}
+	index := New(entries)
+
+	cases := map[string]string{
+		"the prose spelling":         ard.MediaTypeAISkill,
+		"the hf-discover spelling":   "application/ai-skill",
+		"the spelling in other case": "Application/AI-Skill",
+	}
+
+	for name, spelling := range cases {
+		t.Run(name+", query filter", func(t *testing.T) {
+			answer, err := index.Search(context.Background(), registry.SearchQuery{
+				Query:    resolved(t, "", map[string][]string{"type": {spelling}}),
+				PageSize: 10,
+			})
+			if err != nil {
+				t.Fatalf("search: %v", err)
+			}
+			if len(answer.Results) != 2 {
+				t.Errorf("the filter %q found %d entries, want 2", spelling, len(answer.Results))
+			}
+		})
+
+		t.Run(name+", list filter", func(t *testing.T) {
+			answer, err := index.List(context.Background(), registry.ListQuery{
+				Filter:   "type = '" + spelling + "'",
+				PageSize: 10,
+			})
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+			if len(answer.Items) != 2 {
+				t.Errorf("the filter %q listed %d entries, want 2", spelling, len(answer.Items))
+			}
+		})
+	}
+}
+
 func TestTokenizeSplitsTheCamelCase(t *testing.T) {
 	cases := map[string][]string{
 		"ForecastTool":                 {"forecast", "tool"},

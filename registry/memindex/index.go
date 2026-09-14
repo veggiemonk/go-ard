@@ -17,6 +17,7 @@ import (
 var (
 	baseResolver = newBaseResolver()
 	publisherIRI = termIRI(ard.TermPublisher)
+	typeIRI      = termIRI(ard.TermType)
 	corePaths    = newCorePaths()
 	createdPaths = []ard.TermPath{
 		{Key: "createdAt", IRI: termIRI("createdAt")},
@@ -227,7 +228,11 @@ func (r record) matches(filter []registry.Constraint) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if !sharesValue(values, constraint.Values) {
+		wanted := constraint.Values
+		if constraint.Path.IRI == typeIRI && len(constraint.Path.Rest) == 0 {
+			values, wanted = canonicalMediaTypes(values), canonicalMediaTypes(wanted)
+		}
+		if !sharesValue(values, wanted) {
 			return false, nil
 		}
 	}
@@ -343,6 +348,17 @@ func byRelevance(a, b scored) int {
 func window(length, offset, size int) (int, int) {
 	from := min(offset, length)
 	return from, min(from+size, length)
+}
+
+// canonicalMediaTypes folds every spelling of a media type onto one, so that a filter
+// for "application/ai-skill" finds an entry of type "application/ai-skill+md". See
+// ard.CanonicalMediaType.
+func canonicalMediaTypes(values []string) []string {
+	folded := make([]string, len(values))
+	for i, value := range values {
+		folded[i] = ard.CanonicalMediaType(value)
+	}
+	return folded
 }
 
 func sharesValue(held, wanted []string) bool {

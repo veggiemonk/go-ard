@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	ard "github.com/veggiemonk/go-ard"
 	"github.com/veggiemonk/go-ard/registry"
 )
 
@@ -68,7 +69,9 @@ func (f *listFilter) apply(c clause) error {
 		if err := checkOperator(c, equalityOperators); err != nil {
 			return err
 		}
-		f.types = append(f.types, splitValues(c.value)...)
+		for _, value := range splitValues(c.value) {
+			f.types = append(f.types, ard.CanonicalMediaType(value))
+		}
 	case "publisherid":
 		if err := checkOperator(c, equalityOperators); err != nil {
 			return err
@@ -96,7 +99,7 @@ func (f listFilter) matches(r record) bool {
 	if len(f.displayName) > 0 && !containsAny(strings.ToLower(r.entry.DisplayName), f.displayName) {
 		return false
 	}
-	if len(f.types) > 0 && !slices.Contains(f.types, r.entry.Type) {
+	if len(f.types) > 0 && !slices.Contains(f.types, ard.CanonicalMediaType(r.entry.Type)) {
 		return false
 	}
 	if len(f.publishers) > 0 && !slices.Contains(f.publishers, r.publisher) {
