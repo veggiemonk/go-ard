@@ -102,9 +102,14 @@ func (r *Report) adopt(other Report, prefix string) {
 
 // Validator holds the options of validation.
 type Validator struct {
-	// AllowSubdomainAuthority lets a trust domain be a subdomain of the publisher in the
-	// binding of section 4.5.1. The default demands the same domain.
-	AllowSubdomainAuthority bool
+	// RequireExactAuthority demands that the trust domain equal the publisher in the
+	// binding of section 4.5.1. The default also accepts a subdomain of the publisher.
+	RequireExactAuthority bool
+
+	// PublicSuffix reports whether a domain is a public suffix. A publisher that is a
+	// public suffix binds nothing, so a subdomain never satisfies it. A nil function
+	// uses BareTLDIsPublicSuffix, which is not the public suffix list.
+	PublicSuffix func(domain string) bool
 }
 
 // Validate checks one entry with the default options.
@@ -224,11 +229,15 @@ func (v Validator) checkTrustManifest(e Entry, identifier URN, parsed bool, repo
 			identity, identifier.Publisher, err)
 		return
 	}
-	if !SameAuthority(identifier.Publisher, domain, v.AllowSubdomainAuthority) {
+	if !SameAuthority(identifier.Publisher, domain, v.authorityOptions()) {
 		report.fail(path, IssueAuthorityMismatch, sectionAuthorityBinding,
 			"the identity %q has the trust domain %q, which does not satisfy the publisher %q of the identifier %q",
 			identity, domain, identifier.Publisher, e.Identifier)
 	}
+}
+
+func (v Validator) authorityOptions() AuthorityOptions {
+	return AuthorityOptions{RequireExact: v.RequireExactAuthority, PublicSuffix: v.PublicSuffix}
 }
 
 func checkRepresentativeQueries(e Entry, report *Report) {

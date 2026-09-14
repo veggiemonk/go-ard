@@ -129,3 +129,16 @@ One media type, two rules, and a client cannot tell which one it holds.
 already carries, so a client built from a referral and a client built from a base URL
 both reach `/search`, `/explore` and `/agents`. A registry genuinely mounted under a path
 that ends in a route name is unreachable this way, which is the cost of the ambiguity.
+
+## 12. §4.5.1 says the domains must "align" and never says what that means
+
+§4.5.1 says the trust domain of `trustManifest.identity` and the `<publisher>` segment of
+the identifier MUST "align". The word carries the whole binding, and no clause defines it.
+Equality alone rejects the common deployment, where the identity names the environment
+that runs the workload: `spiffe://prod.acme.com/x` under `urn:air:acme.com:...`.
+
+**The library reads "align" as the publisher domain or any subdomain of it.**
+`Validator.RequireExactAuthority` demands equality instead. A publisher that is a public
+suffix binds nothing under it, because anyone may register a name there; the standard
+library carries no public suffix list, so the default guard reaches a bare top level
+domain only and `AuthorityOptions.PublicSuffix` is the seam for the rest.

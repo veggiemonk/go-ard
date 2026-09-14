@@ -193,10 +193,47 @@ func stripPort(host string) string {
 	return host[:i]
 }
 
+// AuthorityOptions tune the publisher authority binding of section 4.5.1.
+type AuthorityOptions struct {
+	// RequireExact demands that the trust domain equal the publisher. The default also
+	// accepts a subdomain of the publisher, because a workload identity commonly names
+	// the environment that runs the workload, as in spiffe://prod.acme.com/x under the
+	// publisher acme.com.
+	RequireExact bool
+
+	// PublicSuffix reports whether a domain is a public suffix, such as com or co.uk.
+	// A publisher that is a public suffix binds nothing, because anyone may hold a name
+	// under it, so a subdomain never satisfies such a publisher. A nil function uses
+	// BareTLDIsPublicSuffix.
+	PublicSuffix func(domain string) bool
+}
+
+// BareTLDIsPublicSuffix is the public suffix test that AuthorityOptions uses when the
+// caller gives none. It reports a domain of one label, such as com, as a public suffix.
+//
+// It is not the public suffix list. The standard library carries no such list and this
+// library takes no dependency, so it cannot tell co.uk, which anyone may register under,
+// from acme.uk, which one publisher holds. A caller that needs the full guard sets
+// AuthorityOptions.PublicSuffix, for example to a test built on
+// golang.org/x/net/publicsuffix.
+func BareTLDIsPublicSuffix(domain string) bool {
+	return !strings.Contains(authorityLabel(domain), ".")
+}
+
 // SameAuthority reports whether a trust domain satisfies the publisher authority binding
-// of section 4.5.1. With allowSubdomain the trust domain may be a subdomain of the
-// publisher.
-func SameAuthority(publisher, trustDomain string, allowSubdomain bool) bool {
+// of section 4.5.1.
+//
+// The zero AuthorityOptions accepts the publisher itself and any subdomain of it, and
+// refuses a subdomain of a public suffix. Section 4.5.1 says the two must "align" and
+// never says what that means; equality alone rejects the common deployment, where the
+// identity names an environment under the publisher domain.
+//
+// The comparison folds ASCII case only. Section 4.2.1 restricts a publisher, and
+// TrustDomain restricts an identity, to letters, digits, dots and hyphens, so an
+// internationalised domain arrives here as an A-label such as xn--mnchen-3ya.de, which is
+// ASCII. A caller that holds a U-label converts it first: the standard library carries no
+// IDNA.
+func SameAuthority(publisher, trustDomain string, opt AuthorityOptions) bool {
 	authority := authorityLabel(publisher)
 	claimed := authorityLabel(trustDomain)
 	if authority == "" || claimed == "" {
@@ -205,7 +242,20 @@ func SameAuthority(publisher, trustDomain string, allowSubdomain bool) bool {
 	if authority == claimed {
 		return true
 	}
-	return allowSubdomain && strings.HasSuffix(claimed, "."+authority)
+	if opt.RequireExact {
+		return false
+	}
+	if opt.publicSuffix()(authority) {
+		return false
+	}
+	return strings.HasSuffix(claimed, "."+authority)
+}
+
+func (o AuthorityOptions) publicSuffix() func(string) bool {
+	if o.PublicSuffix != nil {
+		return o.PublicSuffix
+	}
+	return BareTLDIsPublicSuffix
 }
 
 func authorityLabel(s string) string {

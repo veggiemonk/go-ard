@@ -259,12 +259,12 @@ func TestValidateTrustManifestIdentitySection45(t *testing.T) {
 
 func TestValidatePublisherAuthorityBindingSection451(t *testing.T) {
 	cases := []struct {
-		name           string
-		identifier     string
-		identity       string
-		allowSubdomain bool
-		wantMismatch   bool
-		wantInMessage  string
+		name          string
+		identifier    string
+		identity      string
+		requireExact  bool
+		wantMismatch  bool
+		wantInMessage string
 	}{
 		{
 			name:       "4.5.1 a spiffe id of the publisher binds",
@@ -289,25 +289,43 @@ func TestValidatePublisherAuthorityBindingSection451(t *testing.T) {
 			wantInMessage: "evil.com",
 		},
 		{
-			name:          "4.5.1 a subdomain does not bind by default",
+			name:       "4.5.1 a subdomain binds by default",
+			identifier: "urn:air:acme.com:server:weather",
+			identity:   "spiffe://mesh.acme.com/ns/prod/sa/weather",
+		},
+		{
+			name:       "4.5.1 a deep subdomain binds by default",
+			identifier: "urn:air:acme.com:server:weather",
+			identity:   "spiffe://eu.prod.acme.com/ns/prod/sa/weather",
+		},
+		{
+			name:          "4.5.1 a subdomain does not bind when the validator demands the exact domain",
 			identifier:    "urn:air:acme.com:server:weather",
 			identity:      "spiffe://mesh.acme.com/ns/prod/sa/weather",
+			requireExact:  true,
 			wantMismatch:  true,
 			wantInMessage: "mesh.acme.com",
 		},
 		{
-			name:           "4.5.1 a subdomain binds when the validator allows it",
-			identifier:     "urn:air:acme.com:server:weather",
-			identity:       "spiffe://mesh.acme.com/ns/prod/sa/weather",
-			allowSubdomain: true,
+			name:          "4.5.1 a parent domain never binds",
+			identifier:    "urn:air:mesh.acme.com:server:weather",
+			identity:      "spiffe://acme.com/ns/prod/sa/weather",
+			wantMismatch:  true,
+			wantInMessage: "acme.com",
 		},
 		{
-			name:           "4.5.1 a parent domain never binds",
-			identifier:     "urn:air:mesh.acme.com:server:weather",
-			identity:       "spiffe://acme.com/ns/prod/sa/weather",
-			allowSubdomain: true,
-			wantMismatch:   true,
-			wantInMessage:  "acme.com",
+			name:          "4.5.1 a look alike domain never binds",
+			identifier:    "urn:air:acme.com:server:weather",
+			identity:      "spiffe://evilacme.com/x",
+			wantMismatch:  true,
+			wantInMessage: "evilacme.com",
+		},
+		{
+			name:          "4.5.1 a bare top level domain publisher binds nothing under it",
+			identifier:    "urn:air:com:server:weather",
+			identity:      "spiffe://acme.com/ns/prod/sa/weather",
+			wantMismatch:  true,
+			wantInMessage: "acme.com",
 		},
 		{
 			name:          "4.5.1 an identity that carries no domain is a mismatch",
@@ -322,7 +340,7 @@ func TestValidatePublisherAuthorityBindingSection451(t *testing.T) {
 			entry := conformingEntry()
 			entry.Identifier = c.identifier
 			entry.TrustManifest = &TrustManifest{Identity: c.identity}
-			report := Validator{AllowSubdomainAuthority: c.allowSubdomain}.Entry(entry)
+			report := Validator{RequireExactAuthority: c.requireExact}.Entry(entry)
 			_, got := findIssue(report.Errors, IssueAuthorityMismatch)
 			if got != c.wantMismatch {
 				t.Fatalf("authority mismatch = %v, want %v (errors %v)", got, c.wantMismatch, report.Errors)

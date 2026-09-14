@@ -201,34 +201,71 @@ func TestTrustDomainRejects(t *testing.T) {
 
 func TestSameAuthority(t *testing.T) {
 	cases := []struct {
-		name           string
-		publisher      string
-		trustDomain    string
-		allowSubdomain bool
-		want           bool
+		name         string
+		publisher    string
+		trustDomain  string
+		requireExact bool
+		want         bool
 	}{
 		{"the same domain", "acme.com", "acme.com", false, true},
 		{"the same domain in another case", "ACME.com", "acme.COM", false, true},
 		{"the same domain with a trailing dot", "acme.com", "acme.com.", false, true},
+		{"the same domain when the exact domain is demanded", "acme.com", "acme.com", true, true},
 		{"a different domain", "acme.com", "example.com", false, false},
-		{"a subdomain without the option", "acme.com", "api.acme.com", false, false},
-		{"a subdomain with the option", "acme.com", "api.acme.com", true, true},
-		{"a deep subdomain with the option", "acme.com", "eu.api.acme.com", true, true},
-		{"a look alike domain without the option", "acme.com", "evilacme.com", false, false},
-		{"a look alike domain with the option", "acme.com", "evilacme.com", true, false},
-		{"a look alike subdomain with the option", "acme.com", "api.evilacme.com", true, false},
-		{"a suffix that crosses no label boundary", "acme.com", "notacme.com", true, false},
-		{"the publisher is a subdomain of the trust domain", "api.acme.com", "acme.com", true, false},
-		{"a squatted parent domain", "google.com", "attacker.example", true, false},
-		{"an empty publisher", "", "acme.com", true, false},
-		{"an empty trust domain", "acme.com", "", true, false},
-		{"both empty", "", "", true, false},
+		{"a subdomain by default", "acme.com", "api.acme.com", false, true},
+		{"a deep subdomain by default", "acme.com", "eu.api.acme.com", false, true},
+		{"a subdomain when the exact domain is demanded", "acme.com", "api.acme.com", true, false},
+		{"a look alike domain", "acme.com", "evilacme.com", false, false},
+		{"a look alike subdomain", "acme.com", "api.evilacme.com", false, false},
+		{"a suffix that crosses no label boundary", "acme.com", "notacme.com", false, false},
+		{"the publisher is a subdomain of the trust domain", "api.acme.com", "acme.com", false, false},
+		{"a squatted parent domain", "google.com", "attacker.example", false, false},
+		{"an a-label subdomain", "xn--mnchen-3ya.de", "prod.xn--mnchen-3ya.de", false, true},
+		{"a bare top level domain publisher", "com", "acme.com", false, false},
+		{"a bare top level domain publisher, and the same domain", "com", "com", false, true},
+		{"an empty publisher", "", "acme.com", false, false},
+		{"an empty trust domain", "acme.com", "", false, false},
+		{"both empty", "", "", false, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := SameAuthority(c.publisher, c.trustDomain, c.allowSubdomain)
+			opt := AuthorityOptions{RequireExact: c.requireExact}
+			got := SameAuthority(c.publisher, c.trustDomain, opt)
 			if got != c.want {
-				t.Errorf("SameAuthority(%q, %q, %v) = %v, want %v", c.publisher, c.trustDomain, c.allowSubdomain, got, c.want)
+				t.Errorf("SameAuthority(%q, %q, %+v) = %v, want %v", c.publisher, c.trustDomain, opt, got, c.want)
+			}
+		})
+	}
+}
+
+// BareTLDIsPublicSuffix is not the public suffix list, so a caller that needs the full
+// guard installs one. This shows the seam holds: co.uk binds nothing under it.
+func TestSameAuthorityHonoursAPublicSuffixFromTheCaller(t *testing.T) {
+	list := map[string]bool{"com": true, "co.uk": true}
+	opt := AuthorityOptions{PublicSuffix: func(domain string) bool { return list[domain] }}
+
+	if SameAuthority("co.uk", "evil.co.uk", opt) {
+		t.Error("a subdomain satisfied the public suffix co.uk")
+	}
+	if !SameAuthority("acme.co.uk", "prod.acme.co.uk", opt) {
+		t.Error("a subdomain did not satisfy acme.co.uk, which is no public suffix")
+	}
+}
+
+func TestBareTLDIsPublicSuffix(t *testing.T) {
+	cases := map[string]bool{
+		"com":        true,
+		"uk":         true,
+		"COM.":       true,
+		"acme.com":   false,
+		"acme.co.uk": false,
+		"co.uk":      false, // the limit: the full list would report true
+	}
+
+	for domain, want := range cases {
+		t.Run(domain, func(t *testing.T) {
+			if got := BareTLDIsPublicSuffix(domain); got != want {
+				t.Errorf("BareTLDIsPublicSuffix(%q) = %v, want %v", domain, got, want)
 			}
 		})
 	}
@@ -243,7 +280,7 @@ func TestSameAuthorityWithAParsedIdentifier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TrustDomain gave the error %v", err)
 	}
-	if !SameAuthority(u.Publisher, domain, false) {
-		t.Errorf("SameAuthority(%q, %q, false) = false, want true", u.Publisher, domain)
+	if !SameAuthority(u.Publisher, domain, AuthorityOptions{}) {
+		t.Errorf("SameAuthority(%q, %q, AuthorityOptions{}) = false, want true", u.Publisher, domain)
 	}
 }

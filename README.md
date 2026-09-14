@@ -57,7 +57,10 @@ if err := report.Err(); err != nil {
 
 A missing `representativeQueries` is a warning, so output from existing tooling still
 validates. The publisher authority binding of section 4.5.1 is an error: an entry that
-claims `urn:air:acme.com:...` with an identity in another trust domain is rejected.
+claims `urn:air:acme.com:...` with an identity in another trust domain is rejected. The
+publisher domain itself and any subdomain of it both bind, so `spiffe://prod.acme.com/x`
+satisfies `urn:air:acme.com:...`. `Validator.RequireExactAuthority` demands the same
+domain instead.
 
 ## Resolving a publisher
 
@@ -141,10 +144,20 @@ and fails when the embedded base context has drifted from it.
 - **DNS discovery needs a prober from the caller.** Section 5.1 uses SVCB records and the
   standard library cannot query them. The package gives the `DNSProber` seam and a clear
   `ErrSVCBUnsupported`, rather than a prober that looks right and is not.
+- **The authority binding needs a public suffix list from the caller.** Section 4.5.1
+  accepts a subdomain of the publisher, so a publisher that is itself a public suffix
+  would bind everything under it. The standard library carries no public suffix list, so
+  the default `BareTLDIsPublicSuffix` guards a bare top level domain such as `com` and
+  cannot tell `co.uk` from `acme.uk`. A caller sets `AuthorityOptions.PublicSuffix`, for
+  example to a test built on `golang.org/x/net/publicsuffix`.
+- **Domain comparison folds ASCII case only.** Section 4.2.1 and `TrustDomain` both
+  restrict a domain to letters, digits, dots and hyphens, so an internationalised domain
+  arrives as an A-label such as `xn--mnchen-3ya.de`. A caller that holds a U-label
+  converts it first: the standard library carries no IDNA.
 
 ## Findings against the specification
 
-Writing this library surfaced eleven places where the prose, the JSON Schema, the CDDL,
+Writing this library surfaced twelve places where the prose, the JSON Schema, the CDDL,
 the OpenAPI file and the reference tool disagree. They are listed in
 [docs/spec-findings.md](docs/spec-findings.md), with the side this library follows and
 why. The specification stays the authority; the findings are reported upstream.
