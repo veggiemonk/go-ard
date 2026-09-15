@@ -1,0 +1,144 @@
+{
+  "entries": [
+    {
+      "identifier": "urn:air:acme.com:agent:assistant",
+      "displayName": "Corporate Assistant (A2A)",
+      "type": "application/a2a-agent-card+json",
+      "url": "https://api.acme.com/agents/assistant.json",
+      "description": "General-purpose corporate A2A assistant for internal workflows.",
+      "tags": ["corporate", "productivity"],
+      "updatedAt": "2026-01-15T09:00:00Z",
+      "representativeQueries": [
+        "help me draft an email to the security working group",
+        "summarize my unread messages from Todd"
+      ],
+      "metadata": { "region": "us-east-1", "createdAt": "2026-01-01T00:00:00Z" },
+      "trustManifest": {
+        "identity": "spiffe://acme.com/ns/prod/sa/assistant",
+        "identityType": "spiffe",
+        "attestations": [
+          { "type": "SOC2-Type2", "uri": "https://acme.com/audits/soc2.json" },
+          { "type": "ISO27001", "uri": "https://acme.com/audits/iso27001.json" }
+        ]
+      }
+    },
+    {
+      "identifier": "urn:air:acme.com:server:weather",
+      "displayName": "Weather Data Node",
+      "type": "application/mcp-server-card+json",
+      "url": "https://api.acme.com/mcp/weather.json",
+      "description": "Enterprise weather MCP server for live telemetry.",
+      "capabilities": ["WeatherTool", "ForecastTool"],
+      "tags": ["weather", "telemetry"],
+      "updatedAt": "2026-02-01T09:00:00Z",
+      "representativeQueries": [
+        "what is the current wind speed in Chicago",
+        "get the 5-day forecast for Seattle"
+      ],
+      "trustManifest": {
+        "identity": "spiffe://acme.com/ns/prod/sa/weather",
+        "identityType": "spiffe",
+        "attestations": [{ "type": "SOC2-Type2", "uri": "https://acme.com/audits/soc2.json" }]
+      }
+    },
+    {
+      "identifier": "urn:air:acme.com:tool:unit-converter",
+      "displayName": "Unit Converter",
+      "type": "application/mcp-server-card+json",
+      "url": "https://api.acme.com/mcp/unit-converter.json",
+      "description": "Converts between units of length, mass and volume.",
+      "updatedAt": "2025-12-01T09:00:00Z",
+      "representativeQueries": [
+        "how many kilometres are twelve miles",
+        "convert 3 pounds to grams"
+      ]
+    },
+    {
+      "identifier": "urn:air:travel.example:agent:flights",
+      "@context": { "okf": "https://openknowledgeformat.org/ns#" },
+      "displayName": "Flight Booking Travel Agent",
+      "type": "application/a2a-agent-card+json",
+      "url": "https://travel.example/agents/flights.json",
+      "description": "Books flights and holds seats for corporate travel.",
+      "tags": ["travel", "booking"],
+      "updatedAt": "2026-03-01T09:00:00Z",
+      "okf:taxonomy": ["iata"],
+      "representativeQueries": [
+        "find me a flight booking agent",
+        "book a return flight to Berlin"
+      ],
+      "trustManifest": {
+        "identity": "did:web:travel.example",
+        "identityType": "did",
+        "attestations": [{ "type": "SOC2-Type2", "uri": "https://travel.example/audits/soc2.json" }]
+      }
+    },
+    {
+      "identifier": "urn:air:travel.example:agent:hotels",
+      "@context": { "openknowledge": "https://openknowledgeformat.org/ns#" },
+      "displayName": "Hotel Booking Travel Agent",
+      "type": "application/a2a-agent-card+json",
+      "url": "https://travel.example/agents/hotels.json",
+      "description": "Holds hotel rooms for corporate travel.",
+      "tags": ["travel", "booking"],
+      "updatedAt": "2026-03-02T09:00:00Z",
+      "openknowledge:taxonomy": ["iata"],
+      "representativeQueries": [
+        "find me a hotel near the conference centre",
+        "book two nights in Lisbon"
+      ]
+    },
+    {
+      "identifier": "urn:air:travel.example:agent:cars",
+      "displayName": "Car Rental Travel Agent",
+      "type": "application/a2a-agent-card+json",
+      "url": "https://travel.example/agents/cars.json",
+      "description": "Rents cars for corporate travel.",
+      "tags": ["travel", "rental"],
+      "updatedAt": "2026-03-03T09:00:00Z",
+      "representativeQueries": [
+        "rent a car at Lisbon airport",
+        "find me an estate car for a week"
+      ]
+    },
+    {
+      "identifier": "urn:air:example.com:agent:trains",
+      "displayName": "Train Travel Planner",
+      "type": "application/a2a-agent-card+json",
+      "url": "https://example.com/agents/trains.json",
+      "description": "Plans rail journeys for corporate travel.",
+      "tags": ["travel", "rail"],
+      "updatedAt": "2026-03-04T09:00:00Z",
+      "representativeQueries": [
+        "plan a rail journey from Paris to Milan",
+        "which sleeper train goes to Vienna"
+      ]
+    },
+    {
+      "identifier": "urn:air:example.com:agent:visas",
+      "displayName": "Visa Travel Advisor",
+      "type": "application/a2a-agent-card+json",
+      "url": "https://example.com/agents/visas.json",
+      "description": "Advises on travel documents and entry rules.",
+      "tags": ["travel", "compliance"],
+      "updatedAt": "2026-03-05T09:00:00Z",
+      "representativeQueries": [
+        "do I need a visa for Brazil",
+        "how long is my passport valid for travel"
+      ]
+    },
+    {
+      "identifier": "urn:air:example.com:registry:public",
+      "displayName": "Public Agent Finder",
+      "type": "application/ai-registry+json",
+      "url": "https://finder.example.com/api/",
+      "description": "Public registry of agents, tools and skills.",
+      "tags": ["registry"],
+      "updatedAt": "2026-02-20T09:00:00Z",
+      "representativeQueries": [
+        "which registries can I federate with",
+        "find a public agent finder"
+      ]
+    }
+  ]
+}
